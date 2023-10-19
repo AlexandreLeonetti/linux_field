@@ -1,0 +1,3 @@
+# find a string in all files and directories recursively
+
+grep -Rnw '/path/to/somewhere/' -e 'pattern'
