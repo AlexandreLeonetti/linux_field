@@ -1,14 +1,22 @@
-/*
-
- * then take on the nodejs robot and make it follow a classic ma crossover strat
+/* initialization
+ * reads a file containing 10 lat prices,
+ * push all ten prices directly into databases,
+ * then keep absorbing the new prices as usual.
+ * just make sure to initialize without interferences with cron.
  */
 
 
+/* a good thing would be to factor the code and also generate logs.
+ * to monitor behavior closely
+ */
+
 require('dotenv').config();
 
+const fs = require('fs');
 const crypto = require("crypto");
 const cron = require("node-cron");
 const robot = require("./robot");
+const utilMa= require("./util_ma");
 const express = require("express");
 const cors  = require("cors");
 const Redis = require("redis");
@@ -20,34 +28,26 @@ redisClient.connect()
 const app = express();
 app.listen(1111);
 
-async function createHistory(symbol){
-            const price = await robot.getTickerPrice(symbol);
-            console.log(price);
-            try {
-              const result = await redisClient.rPush("history", [`${price}`]);
-              console.log(result);
-            } catch (e) {
-                  console.log("Error pushing to Redis:");
-                  console.log(e);
-            }
-            return price;
-}
+const filePath = 'ma15m.txt';
 
-async function createMA_10(){
-    const last10 = await redisClient.lRange("history", -10, -1);
-    //mean of last 10 elements.
-    const sum = last10.reduce((a, b) => parseFloat(a) + parseFloat(b), 0);
-    const avg = (sum / last10.length) || 0;
+// Read the file asynchronously
+fs.readFile(filePath, 'utf8', (err, data) => {
+  if (err) {
+    console.error(`Error reading file: ${err}`);
+    return;
+  }
+  const numbersAsStringArray = data.split('\n');
+  const numbersArray = numbersAsStringArray.map(Number);
+  const validNumbersArray = numbersArray.filter(number => !isNaN(number));
+  const first10Numbers = validNumbersArray.slice(0, 10);
+  utilMa.loopAndInit(first10Numbers, redisClient);//this should happen first 
 
-    console.log(`The sum is: ${sum}. The average is: ${avg}.`);
-    try {
-        const result = await redisClient.rPush("ma10", [`${avg}`]);
-        console.log(result);
-    }catch(e){
-        console.log(e);
-    }
-}
+});
 
+
+/* call to database from the server to get the values
+ * when API is called
+ */
 
 async function getPriceHistory(symbol){
     const key = "history";
@@ -84,7 +84,13 @@ app.get("/ma10", async(req, res) =>{
 
 // node cron
 
-cron.schedule("0 * * * * *", () => { // 5 stars means every minutes. 0 0 * * * *  means every hours
-     createHistory(symbol);
-     createMA_10();
+cron.schedule("50 14,29,44,59  * * * *", () => { // 5 stars means every minutes. 
+    // 0 0 * * * *  means every hours
+     const currentDate = newDate();
+     console.log(currentDate);
+     utilMa.injectHistPrice(symbol, redisClient, robot.getTickerPrice );
 });
+
+
+
+
